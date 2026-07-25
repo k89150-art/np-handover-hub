@@ -543,11 +543,13 @@ export default function HandoverApp() {
     if (type === "new_patient") {
       setPatientForm({
         ...emptyPatient(),
+        shift: activeShift,
         handoverBy: profile?.displayName ?? "目前使用者",
       });
     } else {
       setTroubleForm({
         ...emptyTrouble(),
+        shift: activeShift,
         handoverBy: profile?.displayName ?? "目前使用者",
       });
     }
