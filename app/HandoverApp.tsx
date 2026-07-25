@@ -8,7 +8,9 @@ import {
   useState,
 } from "react";
 import {
+  arrayUnion,
   collection,
+  deleteDoc,
   doc,
   onSnapshot,
   query,
@@ -362,8 +364,13 @@ export default function HandoverApp() {
   const [troubles, setTroubles] = useState<TroubleshootingItem[]>([]);
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
+  const [activeShift, setActiveShift] = useState<Shift>("大夜班");
   const seedAttempted = useRef(false);
   const [modal, setModal] = useState<"type" | HandoverType | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [conditionTarget, setConditionTarget] =
+    useState<TroubleshootingItem | null>(null);
+  const [conditionText, setConditionText] = useState("");
   const [patientForm, setPatientForm] = useState<NewPatient>(emptyPatient);
   const [troubleForm, setTroubleForm] = useState<TroubleshootingItem>(emptyTrouble);
   const [formError, setFormError] = useState("");
@@ -479,13 +486,30 @@ export default function HandoverApp() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const pendingCount = troubles.filter(
+  const visiblePatients = useMemo(
+    () =>
+      patients.filter(
+        (item) => item.handoverDate === TODAY && item.shift === activeShift,
+      ),
+    [activeShift, patients],
+  );
+  const visibleTroubles = useMemo(
+    () =>
+      troubles.filter(
+        (item) => item.handoverDate === TODAY && item.shift === activeShift,
+      ),
+    [activeShift, troubles],
+  );
+
+  const pendingCount = visibleTroubles.filter(
     (item) => !["completed", "cancelled"].includes(item.status),
   ).length;
-  const highCount = troubles.filter(
+  const highCount = visibleTroubles.filter(
     (item) => item.priority === "high" && item.status !== "completed",
   ).length;
-  const completedCount = troubles.filter((item) => item.status === "completed").length;
+  const completedCount = visibleTroubles.filter(
+    (item) => item.status === "completed",
+  ).length;
 
   const printPatients = useMemo(
     () =>
@@ -515,6 +539,7 @@ export default function HandoverApp() {
 
   function chooseType(type: HandoverType) {
     setFormError("");
+    setEditingId(null);
     if (type === "new_patient") {
       setPatientForm({
         ...emptyPatient(),
@@ -527,6 +552,20 @@ export default function HandoverApp() {
       });
     }
     setModal(type);
+  }
+
+  function editPatient(patient: NewPatient) {
+    setFormError("");
+    setEditingId(patient.id);
+    setPatientForm({ ...patient });
+    setModal("new_patient");
+  }
+
+  function editTrouble(item: TroubleshootingItem) {
+    setFormError("");
+    setEditingId(item.id);
+    setTroubleForm({ ...item });
+    setModal("troubleshooting");
   }
 
   async function savePatient(event: FormEvent) {
@@ -546,21 +585,27 @@ export default function HandoverApp() {
     }
     if (!user || !profile) return;
     const now = new Date().toISOString().slice(0, 19);
-    const id = `np-${Date.now()}`;
+    const id = editingId ?? `np-${Date.now()}`;
     try {
-      await setDoc(doc(firestore, "new_patients", id), {
+      const payload = {
         ...patientForm,
         id,
         unitId: profile.unitId,
         unit: profile.unitName,
-        createdBy: user.uid,
+        createdBy: editingId ? patientForm.createdBy : user.uid,
         updatedBy: user.uid,
-        createdAt: now,
+        createdAt: editingId ? patientForm.createdAt : now,
         updatedAt: now,
-      });
+      };
+      if (editingId) {
+        await updateDoc(doc(firestore, "new_patients", id), payload);
+      } else {
+        await setDoc(doc(firestore, "new_patients", id), payload);
+      }
       setModal(null);
+      setEditingId(null);
       setView("new_patients");
-      setToast("新病人交班已建立，所有已登入使用者將即時同步");
+      setToast(editingId ? "新病人交班資料已更新" : "新病人交班已建立，所有已登入使用者將即時同步");
     } catch {
       setFormError("儲存失敗，請檢查網路連線或帳號權限。");
     }
@@ -583,23 +628,116 @@ export default function HandoverApp() {
     }
     if (!user || !profile) return;
     const now = new Date().toISOString().slice(0, 19);
-    const id = `ts-${Date.now()}`;
+    const id = editingId ?? `ts-${Date.now()}`;
     try {
-      await setDoc(doc(firestore, "troubleshooting_items", id), {
+      const payload = {
         ...troubleForm,
         id,
         unitId: profile.unitId,
         unit: profile.unitName,
-        createdBy: user.uid,
+        createdBy: editingId ? troubleForm.createdBy : user.uid,
         updatedBy: user.uid,
-        createdAt: now,
+        createdAt: editingId ? troubleForm.createdAt : now,
         updatedAt: now,
-      });
+      };
+      if (editingId) {
+        await updateDoc(doc(firestore, "troubleshooting_items", id), payload);
+      } else {
+        await setDoc(doc(firestore, "troubleshooting_items", id), payload);
+      }
       setModal(null);
+      setEditingId(null);
       setView("troubleshooting");
-      setToast("Trouble shooting 已建立，所有已登入使用者將即時同步");
+      setToast(editingId ? "Trouble shooting 資料已更新" : "Trouble shooting 已建立，所有已登入使用者將即時同步");
     } catch {
       setFormError("儲存失敗，請檢查網路連線或帳號權限。");
+    }
+  }
+
+  function canDelete(createdBy?: string) {
+    return Boolean(
+      user && (createdBy === user.uid || profile?.role === "admin"),
+    );
+  }
+
+  async function removeRecord(
+    type: HandoverType,
+    id: string,
+    createdBy?: string,
+  ) {
+    if (!canDelete(createdBy)) {
+      setToast("只有資料建立者可以刪除此資料");
+      return;
+    }
+    if (!window.confirm("確定要永久刪除這筆交班資料嗎？此動作無法復原。")) {
+      return;
+    }
+    try {
+      await deleteDoc(
+        doc(
+          firestore,
+          type === "new_patient"
+            ? "new_patients"
+            : "troubleshooting_items",
+          id,
+        ),
+      );
+      setToast("交班資料已刪除");
+    } catch {
+      setToast("刪除失敗，只有建立者或管理者可以刪除");
+    }
+  }
+
+  async function updateTroubleStatus(
+    item: TroubleshootingItem,
+    status: TroubleshootingStatus,
+  ) {
+    if (!user) return;
+    try {
+      await updateDoc(doc(firestore, "troubleshooting_items", item.id), {
+        status,
+        updatedBy: user.uid,
+        updatedAt: new Date().toISOString().slice(0, 19),
+      });
+      setToast(`狀態已更新為「${statusText[status]}」`);
+    } catch {
+      setToast("狀態更新失敗，請檢查帳號權限");
+    }
+  }
+
+  function openConditionUpdate(item: TroubleshootingItem) {
+    setConditionTarget(item);
+    setConditionText("");
+  }
+
+  async function saveConditionUpdate(event: FormEvent) {
+    event.preventDefault();
+    if (!conditionTarget || !user || !profile || !conditionText.trim()) return;
+    const now = new Date();
+    const timelineUpdate = {
+      id: `update-${Date.now()}`,
+      time: now.toLocaleTimeString("zh-TW", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      }),
+      author: profile.displayName,
+      content: conditionText.trim(),
+    };
+    try {
+      await updateDoc(
+        doc(firestore, "troubleshooting_items", conditionTarget.id),
+        {
+          timelineUpdates: arrayUnion(timelineUpdate),
+          updatedBy: user.uid,
+          updatedAt: now.toISOString().slice(0, 19),
+        },
+      );
+      setConditionTarget(null);
+      setConditionText("");
+      setToast("目前病況已加入時間軸");
+    } catch {
+      setToast("病況更新失敗，請檢查帳號權限");
     }
   }
 
@@ -767,12 +905,26 @@ export default function HandoverApp() {
 
         <div className="context-bar">
           <div className="shift-switch">
-            <button>白班</button>
-            <button>小夜班</button>
-            <button className="selected">大夜班</button>
+            {(["白班", "小夜班", "大夜班"] as Shift[]).map((shift) => (
+              <button
+                aria-pressed={activeShift === shift}
+                className={activeShift === shift ? "selected" : ""}
+                key={shift}
+                onClick={() => setActiveShift(shift)}
+              >
+                {shift}
+              </button>
+            ))}
           </div>
           <div className="context-info">
-            <span><Icon name="clock" /> 本班 00:00—08:00</span>
+            <span>
+              <Icon name="clock" /> 本班{" "}
+              {activeShift === "白班"
+                ? "08:00—16:00"
+                : activeShift === "小夜班"
+                  ? "16:00—00:00"
+                  : "00:00—08:00"}
+            </span>
             <span><Icon name="shield" /> 資料保存 {retentionDays} 天</span>
             <span className={dataLoading ? "syncing" : "synced"}>
               <i /> {dataLoading ? "同步資料中" : "Firebase 已同步"}
@@ -787,7 +939,7 @@ export default function HandoverApp() {
           <div className="page-content">
             <section className="welcome-strip">
               <div>
-                <span className="live-pill"><i /> 大夜班進行中</span>
+                <span className="live-pill"><i /> {activeShift}資料</span>
                 <h2>早安，{profile?.displayName}</h2>
                 <p>本班有 {pendingCount} 項待處理問題，其中 {highCount} 項需要優先關注。</p>
               </div>
@@ -802,7 +954,7 @@ export default function HandoverApp() {
             </section>
 
             <section className="stats-grid">
-              <StatCard label="新病人數" value={patients.length} tone="blue" note="本班新收治" icon="patient" />
+              <StatCard label="新病人數" value={visiblePatients.length} tone="blue" note="本班新收治" icon="patient" />
               <StatCard label="待處理數" value={pendingCount} tone="amber" note="需持續追蹤" icon="clock" />
               <StatCard label="高優先數" value={highCount} tone="red" note="請優先處置" icon="trouble" />
               <StatCard label="已完成數" value={completedCount} tone="green" note="本班已結案" icon="check" />
@@ -818,7 +970,7 @@ export default function HandoverApp() {
                 <button className="text-button" onClick={() => setView("new_patients")}>查看全部 <Icon name="chevron" /></button>
               </div>
               <div className="patient-cards">
-                {patients.slice(0, 2).map((patient) => (
+                {visiblePatients.slice(0, 2).map((patient) => (
                   <article className="patient-card" key={patient.id}>
                     <div className="bed-badge">{patient.bedNo}</div>
                     <div className="patient-card-main">
@@ -851,7 +1003,7 @@ export default function HandoverApp() {
                 </div>
                 <button className="text-button" onClick={() => setView("troubleshooting")}>查看全部 <Icon name="chevron" /></button>
               </div>
-              <TroubleTable rows={troubles.filter((item) => item.status !== "completed").slice(0, 3)} />
+              <TroubleTable rows={visibleTroubles.filter((item) => item.status !== "completed").slice(0, 3)} />
             </section>
           </div>
         )}
@@ -862,7 +1014,7 @@ export default function HandoverApp() {
               <div>
                 <span className="section-kicker blue">NEW PATIENT</span>
                 <h2>新病人交班清單</h2>
-                <p>僅顯示 handover_type = new_patient 的資料，共 {patients.length} 筆。</p>
+                <p>目前顯示 {activeShift}，共 {visiblePatients.length} 筆新病人資料。</p>
               </div>
               <button className="secondary-button" onClick={() => openPrint("new_patient")}>
                 <Icon name="print" /> 預覽新病人交班單
@@ -881,14 +1033,21 @@ export default function HandoverApp() {
                   </tr>
                 </thead>
                 <tbody>
-                  {patients.map((patient) => (
+                  {visiblePatients.map((patient) => (
                     <tr key={patient.id}>
                       <td><b className="bed-number">{patient.bedNo}</b><strong>{patient.patientAlias || "—"}</strong><small>{patient.attendingDoctor}</small></td>
                       <td><strong>{patient.primaryDiagnosis || "—"}</strong><small>{patient.admissionReason}</small></td>
                       <td><span>{patient.consciousness}</span><small>{patient.respiratoryCirculation}</small></td>
                       <td><span>{patient.pendingLabs || patient.pendingExams || "目前無待辦"}</span><small className="danger-text">{patient.reportConditions}</small></td>
                       <td>{patient.handoverBy}</td>
-                      <td><small>{patient.updatedAt.slice(5, 16).replace("T", " ")}</small><button className="row-action" title="檢視">···</button></td>
+                      <td>
+                        <small>{patient.updatedAt.slice(5, 16).replace("T", " ")}</small>
+                        <PatientActionMenu
+                          canDelete={canDelete(patient.createdBy)}
+                          onDelete={() => void removeRecord("new_patient", patient.id, patient.createdBy)}
+                          onEdit={() => editPatient(patient)}
+                        />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -903,19 +1062,27 @@ export default function HandoverApp() {
               <div>
                 <span className="section-kicker purple">TROUBLE SHOOTING</span>
                 <h2>問題處理清單</h2>
-                <p>僅顯示 handover_type = troubleshooting 的資料，共 {troubles.length} 筆。</p>
+                <p>目前顯示 {activeShift}，共 {visibleTroubles.length} 筆 Trouble shooting 資料。</p>
               </div>
               <button className="secondary-button" onClick={() => openPrint("troubleshooting")}>
                 <Icon name="print" /> 預覽特殊交班單
               </button>
             </section>
             <div className="filter-row">
-              <button className="filter-active">全部 {troubles.length}</button>
+              <button className="filter-active">全部 {visibleTroubles.length}</button>
               <button>待處理 {pendingCount}</button>
               <button>高優先 {highCount}</button>
               <button>已完成 {completedCount}</button>
             </div>
-            <TroubleTable rows={troubles} detailed />
+            <TroubleTable
+              rows={visibleTroubles}
+              detailed
+              canDelete={(item) => canDelete(item.createdBy)}
+              onConditionUpdate={openConditionUpdate}
+              onDelete={(item) => void removeRecord("troubleshooting", item.id, item.createdBy)}
+              onEdit={editTrouble}
+              onStatusChange={(item, status) => void updateTroubleStatus(item, status)}
+            />
           </div>
         )}
 
@@ -1182,8 +1349,8 @@ export default function HandoverApp() {
         <div className="modal-backdrop">
           <form className="modal form-modal" onSubmit={savePatient}>
             <header className="form-modal-header">
-              <div><span className="type-label patient-label">新病人</span><h2>新增新病人交班</h2><p>獨立表單 · handover_type: new_patient</p></div>
-              <button type="button" className="modal-close static" onClick={() => setModal(null)} aria-label="關閉"><Icon name="close" /></button>
+              <div><span className="type-label patient-label">新病人</span><h2>{editingId ? "編輯新病人交班" : "新增新病人交班"}</h2><p>獨立表單 · handover_type: new_patient</p></div>
+              <button type="button" className="modal-close static" onClick={() => { setModal(null); setEditingId(null); }} aria-label="關閉"><Icon name="close" /></button>
             </header>
             <div className="form-scroll">
               <FormSection number="01" title="病人基本資料">
@@ -1224,7 +1391,7 @@ export default function HandoverApp() {
                 <Field label="交班者" value={patientForm.handoverBy} onChange={(handoverBy) => setPatientForm({ ...patientForm, handoverBy })} />
               </FormSection>
             </div>
-            <FormFooter error={formError} onCancel={() => setModal(null)} />
+            <FormFooter error={formError} onCancel={() => { setModal(null); setEditingId(null); }} submitLabel={editingId ? "儲存修改" : undefined} />
           </form>
         </div>
       )}
@@ -1233,8 +1400,8 @@ export default function HandoverApp() {
         <div className="modal-backdrop">
           <form className="modal form-modal" onSubmit={saveTrouble}>
             <header className="form-modal-header trouble-form-header">
-              <div><span className="type-label trouble-label">Trouble shooting</span><h2>新增 Trouble shooting</h2><p>一個問題一筆 · handover_type: troubleshooting</p></div>
-              <button type="button" className="modal-close static" onClick={() => setModal(null)} aria-label="關閉"><Icon name="close" /></button>
+              <div><span className="type-label trouble-label">Trouble shooting</span><h2>{editingId ? "編輯 Trouble shooting" : "新增 Trouble shooting"}</h2><p>一個問題一筆 · handover_type: troubleshooting</p></div>
+              <button type="button" className="modal-close static" onClick={() => { setModal(null); setEditingId(null); }} aria-label="關閉"><Icon name="close" /></button>
             </header>
             <div className="form-scroll">
               <FormSection number="01" title="基本資訊">
@@ -1259,7 +1426,39 @@ export default function HandoverApp() {
                 <Field label="接班者" value={troubleForm.acceptedBy || ""} onChange={(acceptedBy) => setTroubleForm({ ...troubleForm, acceptedBy })} />
               </FormSection>
             </div>
-            <FormFooter error={formError} onCancel={() => setModal(null)} />
+            <FormFooter error={formError} onCancel={() => { setModal(null); setEditingId(null); }} submitLabel={editingId ? "儲存修改" : undefined} />
+          </form>
+        </div>
+      )}
+
+      {conditionTarget && (
+        <div className="modal-backdrop">
+          <form className="modal condition-modal" onSubmit={saveConditionUpdate}>
+            <button
+              type="button"
+              className="modal-close"
+              onClick={() => setConditionTarget(null)}
+              aria-label="關閉"
+            >
+              <Icon name="close" />
+            </button>
+            <span className="type-label trouble-label">目前病況</span>
+            <h2>{conditionTarget.bedNo} · {conditionTarget.patientAlias}</h2>
+            <p>新增內容會保留在時間軸，並記錄更新者與時間。</p>
+            <label className="condition-field">
+              <span>病況更新</span>
+              <textarea
+                autoFocus
+                required
+                value={conditionText}
+                onChange={(event) => setConditionText(event.target.value)}
+                placeholder="例：SpO₂ 已回升至 95%，持續使用 simple mask 6 L/min。"
+              />
+            </label>
+            <div className="condition-actions">
+              <button type="button" onClick={() => setConditionTarget(null)}>取消</button>
+              <button type="submit">加入時間軸</button>
+            </div>
           </form>
         </div>
       )}
@@ -1269,12 +1468,109 @@ export default function HandoverApp() {
   );
 }
 
+function PatientActionMenu({
+  canDelete,
+  onDelete,
+  onEdit,
+}: {
+  canDelete: boolean;
+  onDelete: () => void;
+  onEdit: () => void;
+}) {
+  return (
+    <details className="row-action-menu">
+      <summary className="row-action" title="更多操作" aria-label="更多操作">
+        ···
+      </summary>
+      <div className="action-popover">
+        <button type="button" onClick={onEdit}>編輯資料</button>
+        {canDelete ? (
+          <button type="button" className="danger-action" onClick={onDelete}>
+            刪除資料
+          </button>
+        ) : (
+          <span className="action-help">只有建立者可刪除</span>
+        )}
+      </div>
+    </details>
+  );
+}
+
+function TroubleActionMenu({
+  canDelete,
+  item,
+  onConditionUpdate,
+  onDelete,
+  onEdit,
+  onStatusChange,
+}: {
+  canDelete: boolean;
+  item: TroubleshootingItem;
+  onConditionUpdate: () => void;
+  onDelete: () => void;
+  onEdit: () => void;
+  onStatusChange: (status: TroubleshootingStatus) => void;
+}) {
+  return (
+    <details className="row-action-menu">
+      <summary className="row-action" title="更多操作" aria-label="更多操作">
+        ···
+      </summary>
+      <div className="action-popover trouble-actions">
+        <span className="action-title">變更狀態</span>
+        <div className="status-actions">
+          {(
+            [
+              ["pending", "待處理"],
+              ["in_progress", "處理中"],
+              ["waiting", "待追蹤"],
+              ["completed", "已完成"],
+            ] as Array<[TroubleshootingStatus, string]>
+          ).map(([status, label]) => (
+            <button
+              type="button"
+              className={item.status === status ? "current-status" : ""}
+              disabled={item.status === status}
+              key={status}
+              onClick={() => onStatusChange(status)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <button type="button" onClick={onConditionUpdate}>新增目前病況</button>
+        <button type="button" onClick={onEdit}>編輯完整資料</button>
+        {canDelete ? (
+          <button type="button" className="danger-action" onClick={onDelete}>
+            刪除資料
+          </button>
+        ) : (
+          <span className="action-help">只有建立者可刪除</span>
+        )}
+      </div>
+    </details>
+  );
+}
+
 function TroubleTable({
   rows,
   detailed = false,
+  canDelete,
+  onConditionUpdate,
+  onDelete,
+  onEdit,
+  onStatusChange,
 }: {
   rows: TroubleshootingItem[];
   detailed?: boolean;
+  canDelete?: (item: TroubleshootingItem) => boolean;
+  onConditionUpdate?: (item: TroubleshootingItem) => void;
+  onDelete?: (item: TroubleshootingItem) => void;
+  onEdit?: (item: TroubleshootingItem) => void;
+  onStatusChange?: (
+    item: TroubleshootingItem,
+    status: TroubleshootingStatus,
+  ) => void;
 }) {
   return (
     <div className="trouble-table-wrap">
@@ -1299,7 +1595,18 @@ function TroubleTable({
               <td><b>{item.followupAt ? item.followupAt.slice(11, 16) : "待確認"}</b><small>{item.pendingFollowup}</small></td>
               <td>{item.ownerName}</td>
               <td><span className={`status status-${item.status}`}>{statusText[item.status]}</span></td>
-              {detailed && <td><button className="row-action" title="更多">···</button></td>}
+              {detailed && (
+                <td>
+                  <TroubleActionMenu
+                    canDelete={canDelete?.(item) ?? false}
+                    item={item}
+                    onConditionUpdate={() => onConditionUpdate?.(item)}
+                    onDelete={() => onDelete?.(item)}
+                    onEdit={() => onEdit?.(item)}
+                    onStatusChange={(status) => onStatusChange?.(item, status)}
+                  />
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
@@ -1328,15 +1635,17 @@ function FormSection({
 function FormFooter({
   error,
   onCancel,
+  submitLabel = "儲存交班資料",
 }: {
   error: string;
   onCancel: () => void;
+  submitLabel?: string;
 }) {
   return (
     <footer className="form-footer">
       <div>{error && <span className="form-error">{error}</span>}</div>
       <button type="button" className="cancel-button" onClick={onCancel}>取消</button>
-      <button type="submit" className="primary-button"><Icon name="check" /> 儲存交班資料</button>
+      <button type="submit" className="primary-button"><Icon name="check" /> {submitLabel}</button>
     </footer>
   );
 }

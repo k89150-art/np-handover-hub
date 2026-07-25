@@ -68,11 +68,16 @@ service cloud.firestore {
       allow update: if isActive() &&
         sameUnit(resource.data.unitId) &&
         request.resource.data.unitId == resource.data.unitId &&
+        request.resource.data.unit == resource.data.unit &&
+        request.resource.data.id == resource.data.id &&
         request.resource.data.handover_type == resource.data.handover_type &&
+        request.resource.data.createdBy == resource.data.createdBy &&
+        request.resource.data.createdAt == resource.data.createdAt &&
         request.resource.data.updatedBy == request.auth.uid &&
-        (isManager() || resource.data.createdBy == request.auth.uid);
+        sameUnit(request.resource.data.unitId);
 
-      allow delete: if isAdmin() && sameUnit(resource.data.unitId);
+      allow delete: if sameUnit(resource.data.unitId) &&
+        (resource.data.createdBy == request.auth.uid || isAdmin());
     }
 
     match /troubleshooting_items/{recordId} {
@@ -88,11 +93,16 @@ service cloud.firestore {
       allow update: if isActive() &&
         sameUnit(resource.data.unitId) &&
         request.resource.data.unitId == resource.data.unitId &&
+        request.resource.data.unit == resource.data.unit &&
+        request.resource.data.id == resource.data.id &&
         request.resource.data.handover_type == resource.data.handover_type &&
+        request.resource.data.createdBy == resource.data.createdBy &&
+        request.resource.data.createdAt == resource.data.createdAt &&
         request.resource.data.updatedBy == request.auth.uid &&
-        (isManager() || resource.data.createdBy == request.auth.uid);
+        sameUnit(request.resource.data.unitId);
 
-      allow delete: if isAdmin() && sameUnit(resource.data.unitId);
+      allow delete: if sameUnit(resource.data.unitId) &&
+        (resource.data.createdBy == request.auth.uid || isAdmin());
     }
 
     match /troubleshooting_updates/{updateId} {
