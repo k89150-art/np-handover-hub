@@ -41,20 +41,18 @@ export function NewPatientPrintSheet({
       <table>
         <colgroup>
           <col style={{ width: "8%" }} />
-          <col style={{ width: "14%" }} />
+          <col style={{ width: "15%" }} />
           <col style={{ width: "18%" }} />
+          <col style={{ width: "29%" }} />
           <col style={{ width: "20%" }} />
-          <col style={{ width: "16%" }} />
-          <col style={{ width: "16%" }} />
-          <col style={{ width: "8%" }} />
+          <col style={{ width: "10%" }} />
         </colgroup>
         <thead>
           <tr>
             <th>日期</th>
             <th>病人基本資料</th>
             <th>主要診斷／入院原因</th>
-            <th>目前狀況</th>
-            <th>重要治療</th>
+            <th>目前狀況／重要治療</th>
             <th>待辦及注意事項</th>
             <th>交接者／接班者</th>
           </tr>
@@ -90,9 +88,9 @@ export function NewPatientPrintSheet({
                   ["飲食", row.diet],
                   ["活動", row.activity],
                   ["隔離", row.isolation],
+                  ["重要治療", row.importantTreatment],
                 ])}
               </td>
-              <td>{lines([["治療", row.importantTreatment]])}</td>
               <td>
                 {lines([
                   ["檢驗", row.pendingLabs],
@@ -121,7 +119,7 @@ export function NewPatientPrintSheet({
           ))}
           {blanks.map((index) => (
             <tr className="blank-print-row" key={`new-blank-${index}`}>
-              {Array.from({ length: 7 }, (_, cell) => (
+              {Array.from({ length: 6 }, (_, cell) => (
                 <td key={cell}>&nbsp;</td>
               ))}
             </tr>

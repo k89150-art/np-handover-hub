@@ -1160,7 +1160,7 @@ export default function HandoverApp() {
                   <tr>
                     <th>床號／病人</th>
                     <th>主要診斷／入院原因</th>
-                    <th>目前狀況</th>
+                    <th>目前狀況／重要治療</th>
                     <th>待辦及注意事項</th>
                     <th>交班者</th>
                     <th>更新</th>
@@ -1171,7 +1171,15 @@ export default function HandoverApp() {
                     <tr key={patient.id}>
                       <td><b className="bed-number">{patient.bedNo}</b><strong>{patient.patientAlias || "—"}</strong><small>{patient.attendingDoctor}</small></td>
                       <td><strong>{patient.primaryDiagnosis || "—"}</strong><small>{patient.admissionReason}</small></td>
-                      <td><span>{patient.consciousness}</span><small>{patient.respiratoryCirculation}</small></td>
+                      <td>
+                        <span>{patient.consciousness}</span>
+                        <small>{patient.respiratoryCirculation}</small>
+                        {patient.importantTreatment && (
+                          <small className="treatment-summary">
+                            <b>重要治療</b> {patient.importantTreatment}
+                          </small>
+                        )}
+                      </td>
                       <td><span>{patient.pendingLabs || patient.pendingExams || "目前無待辦"}</span><small className="danger-text">{patient.reportConditions}</small></td>
                       <td>{patient.handoverBy}</td>
                       <td>
@@ -1514,24 +1522,22 @@ export default function HandoverApp() {
                 <Field label="入院原因" type="textarea" value={patientForm.admissionReason} span={2} onChange={(admissionReason) => setPatientForm({ ...patientForm, admissionReason })} />
                 <Field label="重要病史" type="textarea" value={patientForm.importantHistory} span={2} onChange={(importantHistory) => setPatientForm({ ...patientForm, importantHistory })} />
               </FormSection>
-              <FormSection number="03" title="目前狀況">
+              <FormSection number="03" title="目前狀況與重要治療">
                 <Field label="目前意識狀態" value={patientForm.consciousness} onChange={(consciousness) => setPatientForm({ ...patientForm, consciousness })} />
                 <Field label="呼吸與循環狀況" value={patientForm.respiratoryCirculation} onChange={(respiratoryCirculation) => setPatientForm({ ...patientForm, respiratoryCirculation })} />
                 <Field label="管路" value={patientForm.lines} onChange={(lines) => setPatientForm({ ...patientForm, lines })} />
                 <Field label="飲食" value={patientForm.diet} onChange={(diet) => setPatientForm({ ...patientForm, diet })} />
                 <Field label="活動狀況" value={patientForm.activity} onChange={(activity) => setPatientForm({ ...patientForm, activity })} />
                 <Field label="隔離狀態" value={patientForm.isolation} onChange={(isolation) => setPatientForm({ ...patientForm, isolation })} />
-              </FormSection>
-              <FormSection number="04" title="重要治療">
                 <Field label="重要治療與特殊處置" type="textarea" value={patientForm.importantTreatment} placeholder="抗生素、抗凝血、升壓劑、洗腎或其他治療" span={2} onChange={(importantTreatment) => setPatientForm({ ...patientForm, importantTreatment })} />
               </FormSection>
-              <FormSection number="05" title="待辦事項">
+              <FormSection number="04" title="待辦事項">
                 <Field label="待追蹤檢驗" value={patientForm.pendingLabs} onChange={(pendingLabs) => setPatientForm({ ...patientForm, pendingLabs })} />
                 <Field label="待安排檢查" value={patientForm.pendingExams} onChange={(pendingExams) => setPatientForm({ ...patientForm, pendingExams })} />
                 <Field label="會診" value={patientForm.consultation} onChange={(consultation) => setPatientForm({ ...patientForm, consultation })} />
                 <Field label="家屬溝通" value={patientForm.familyCommunication} onChange={(familyCommunication) => setPatientForm({ ...patientForm, familyCommunication })} />
               </FormSection>
-              <FormSection number="06" title="注意事項">
+              <FormSection number="05" title="注意事項">
                 <Field label="DNR 或治療限制" value={patientForm.treatmentLimit} onChange={(treatmentLimit) => setPatientForm({ ...patientForm, treatmentLimit })} />
                 <Field label="夜間注意事項" type="textarea" value={patientForm.nightPrecautions} onChange={(nightPrecautions) => setPatientForm({ ...patientForm, nightPrecautions })} />
                 <Field label="需要立即回報的條件" type="textarea" value={patientForm.reportConditions} span={2} onChange={(reportConditions) => setPatientForm({ ...patientForm, reportConditions })} />
