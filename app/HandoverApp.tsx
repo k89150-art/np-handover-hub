@@ -364,6 +364,7 @@ export default function HandoverApp() {
   const [troubles, setTroubles] = useState<TroubleshootingItem[]>([]);
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
+  const [notificationNow, setNotificationNow] = useState(() => Date.now());
   const [activeShift, setActiveShift] = useState<Shift>("大夜班");
   const seedAttempted = useRef(false);
   const [modal, setModal] = useState<"type" | HandoverType | null>(null);
@@ -486,6 +487,14 @@ export default function HandoverApp() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  useEffect(() => {
+    const timer = window.setInterval(
+      () => setNotificationNow(Date.now()),
+      60_000,
+    );
+    return () => window.clearInterval(timer);
+  }, []);
+
   const visiblePatients = useMemo(
     () =>
       patients.filter(
@@ -501,11 +510,34 @@ export default function HandoverApp() {
     [activeShift, troubles],
   );
 
+  const notificationTroubles = useMemo(
+    () =>
+      troubles.filter(
+        (item) => !["completed", "cancelled"].includes(item.status),
+      ),
+    [troubles],
+  );
+  const overdueTroubles = useMemo(
+    () =>
+      notificationTroubles.filter(
+        (item) =>
+          Boolean(item.followupAt) &&
+          new Date(item.followupAt).getTime() < notificationNow,
+      ),
+    [notificationNow, notificationTroubles],
+  );
+  const notificationHighCount = notificationTroubles.filter(
+    (item) => item.priority === "high",
+  ).length;
+  const notificationCount = notificationTroubles.length;
+
   const pendingCount = visibleTroubles.filter(
     (item) => !["completed", "cancelled"].includes(item.status),
   ).length;
   const highCount = visibleTroubles.filter(
-    (item) => item.priority === "high" && item.status !== "completed",
+    (item) =>
+      item.priority === "high" &&
+      !["completed", "cancelled"].includes(item.status),
   ).length;
   const completedCount = visibleTroubles.filter(
     (item) => item.status === "completed",
@@ -848,8 +880,8 @@ export default function HandoverApp() {
             >
               <Icon name={icon} />
               <span>{label}</span>
-              {key === "troubleshooting" && pendingCount > 0 && (
-                <b className="nav-count">{pendingCount}</b>
+              {key === "troubleshooting" && notificationCount > 0 && (
+                <b className="nav-count">{notificationCount}</b>
               )}
             </button>
           ))}
@@ -882,10 +914,60 @@ export default function HandoverApp() {
               <Icon name="search" />
               <input aria-label="搜尋床號或病人代稱" placeholder="搜尋床號或病人代稱" />
             </label>
-            <button className="icon-button" aria-label="通知">
-              <Icon name="bell" />
-              <span />
-            </button>
+            <details className="notification-menu">
+              <summary className="icon-button" aria-label={`重要通知 ${notificationCount} 項`}>
+                <span className="notification-symbol">!</span>
+                {notificationCount > 0 && (
+                  <b className="notification-count">{notificationCount}</b>
+                )}
+              </summary>
+              <div className="notification-popover">
+                <header>
+                  <div>
+                    <span>跨班重要事項</span>
+                    <strong>通知中心</strong>
+                  </div>
+                  <b>{notificationCount}</b>
+                </header>
+                <div className="notification-summary">
+                  <span><b>{notificationHighCount}</b> 高優先</span>
+                  <span><b>{overdueTroubles.length}</b> 已逾追蹤時間</span>
+                  <span><b>{notificationCount}</b> 尚未完成</span>
+                </div>
+                <div className="notification-list">
+                  {notificationTroubles.length === 0 ? (
+                    <p className="notification-empty">目前沒有未完成事項</p>
+                  ) : (
+                    notificationTroubles.slice(0, 5).map((item) => (
+                      <button
+                        type="button"
+                        key={item.id}
+                        onClick={(event) => {
+                          setActiveShift(item.shift);
+                          setView("troubleshooting");
+                          event.currentTarget
+                            .closest("details")
+                            ?.removeAttribute("open");
+                        }}
+                      >
+                        <i className={`priority-dot ${item.priority}`} />
+                        <span>
+                          <strong>{item.bedNo} · {item.patientAlias || "未填代稱"}</strong>
+                          <small>{item.specialSituation}</small>
+                          <em>
+                            {item.shift} · {statusText[item.status]}
+                            {overdueTroubles.some((overdue) => overdue.id === item.id)
+                              ? " · 已逾時"
+                              : ""}
+                          </em>
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+                <footer>通知不受目前選取班別影響</footer>
+              </div>
+            </details>
             <div className="profile">
               <div className="avatar">{profile?.displayName.slice(0, 1) || "U"}</div>
               <div>
