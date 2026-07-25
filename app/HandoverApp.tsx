@@ -1593,7 +1593,17 @@ function TroubleTable({
             <tr key={item.id}>
               <td><span className={`priority-dot ${item.priority}`} /><span className={`priority-text ${item.priority}`}>{item.priority === "high" ? "高" : item.priority === "medium" ? "中" : "低"}</span></td>
               <td><b className="bed-number">{item.bedNo}</b><strong>{item.patientAlias}</strong><small>{item.diagnosis}</small></td>
-              <td><strong>{item.specialSituation}</strong><small><b>已處置</b> {item.completedAction || "尚無"}</small>{detailed && item.timelineUpdates.length > 0 && <span className="updates-count">{item.timelineUpdates.length} 則時間軸更新</span>}</td>
+              <td>
+                <strong>{item.specialSituation}</strong>
+                <small><b>已處置</b> {item.completedAction || "尚無"}</small>
+                {item.timelineUpdates.length > 0 && (
+                  <small className="current-condition">
+                    <b>目前病況</b>{" "}
+                    {item.timelineUpdates[item.timelineUpdates.length - 1].content}
+                  </small>
+                )}
+                {detailed && item.timelineUpdates.length > 0 && <span className="updates-count">{item.timelineUpdates.length} 則時間軸更新</span>}
+              </td>
               <td><b>{item.followupAt ? item.followupAt.slice(11, 16) : "待確認"}</b><small>{item.pendingFollowup}</small></td>
               <td>{item.ownerName}</td>
               <td><span className={`status status-${item.status}`}>{statusText[item.status]}</span></td>
