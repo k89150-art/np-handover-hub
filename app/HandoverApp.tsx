@@ -45,6 +45,7 @@ type TroubleFilter = "all" | "pending" | "high" | "completed";
 const TODAY = "2026-07-25";
 const UNIT = "胸腔內科病房";
 const UNIT_ID = "chest-medicine";
+const ENABLE_DEMO_SEED = false;
 
 const seedPatients: NewPatient[] = [
   {
@@ -422,6 +423,7 @@ export default function HandoverApp() {
         setDataLoading(false);
 
         if (
+          ENABLE_DEMO_SEED &&
           snapshot.empty &&
           profile.role === "admin" &&
           !seedAttempted.current
