@@ -621,6 +621,13 @@ export default function HandoverApp() {
   const completedCount = visibleTroubles.filter(
     (item) => item.status === "completed",
   ).length;
+  const resolvedCount = visibleTroubles.filter((item) =>
+    ["completed", "cancelled"].includes(item.status),
+  ).length;
+  const completionPercent =
+    visibleTroubles.length === 0
+      ? 100
+      : Math.round((resolvedCount / visibleTroubles.length) * 100);
   const filteredVisibleTroubles = useMemo(() => {
     if (troubleFilter === "pending") {
       return visibleTroubles.filter(
@@ -1165,10 +1172,16 @@ export default function HandoverApp() {
               <div className="handover-progress">
                 <div>
                   <span>交班完成度</span>
-                  <strong>68%</strong>
+                  <strong>{completionPercent}%</strong>
                 </div>
-                <div className="progress-track"><i style={{ width: "68%" }} /></div>
-                <small>已確認 15 / 22 項</small>
+                <div className="progress-track">
+                  <i style={{ width: `${completionPercent}%` }} />
+                </div>
+                <small>
+                  {visibleTroubles.length === 0
+                    ? "目前沒有待處理事項"
+                    : `已結束 ${resolvedCount} / ${visibleTroubles.length} 項`}
+                </small>
               </div>
             </section>
 
