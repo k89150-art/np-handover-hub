@@ -1,0 +1,128 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function currentProfile() {
+      return get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data;
+    }
+
+    function isActive() {
+      return signedIn() && currentProfile().status == "active";
+    }
+
+    function isAdmin() {
+      return isActive() && currentProfile().role == "admin";
+    }
+
+    function isManager() {
+      return isActive() &&
+        currentProfile().role in ["admin", "manager"];
+    }
+
+    function sameUnit(unitId) {
+      return isActive() && currentProfile().unitId == unitId;
+    }
+
+    match /profiles/{uid} {
+      allow get: if signedIn() &&
+        (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+
+      allow create: if signedIn() &&
+        request.auth.uid == uid &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.email == request.auth.token.email &&
+        (
+          (
+            request.auth.token.email == "k89150@gmail.com" &&
+            request.auth.token.email_verified == true &&
+            request.resource.data.role == "admin" &&
+            request.resource.data.status == "active"
+          ) ||
+          (
+            request.resource.data.role == "member" &&
+            request.resource.data.status == "pending"
+          )
+        );
+
+      allow update: if isAdmin() &&
+        request.resource.data.uid == resource.data.uid &&
+        request.resource.data.email == resource.data.email;
+      allow delete: if false;
+    }
+
+    match /new_patients/{recordId} {
+      allow read: if isActive() &&
+        (isAdmin() || sameUnit(resource.data.unitId));
+
+      allow create: if isActive() &&
+        sameUnit(request.resource.data.unitId) &&
+        request.resource.data.handover_type == "new_patient" &&
+        request.resource.data.createdBy == request.auth.uid &&
+        request.resource.data.updatedBy == request.auth.uid;
+
+      allow update: if isActive() &&
+        sameUnit(resource.data.unitId) &&
+        request.resource.data.unitId == resource.data.unitId &&
+        request.resource.data.handover_type == resource.data.handover_type &&
+        request.resource.data.updatedBy == request.auth.uid &&
+        (isManager() || resource.data.createdBy == request.auth.uid);
+
+      allow delete: if isAdmin() && sameUnit(resource.data.unitId);
+    }
+
+    match /troubleshooting_items/{recordId} {
+      allow read: if isActive() &&
+        (isAdmin() || sameUnit(resource.data.unitId));
+
+      allow create: if isActive() &&
+        sameUnit(request.resource.data.unitId) &&
+        request.resource.data.handover_type == "troubleshooting" &&
+        request.resource.data.createdBy == request.auth.uid &&
+        request.resource.data.updatedBy == request.auth.uid;
+
+      allow update: if isActive() &&
+        sameUnit(resource.data.unitId) &&
+        request.resource.data.unitId == resource.data.unitId &&
+        request.resource.data.handover_type == resource.data.handover_type &&
+        request.resource.data.updatedBy == request.auth.uid &&
+        (isManager() || resource.data.createdBy == request.auth.uid);
+
+      allow delete: if isAdmin() && sameUnit(resource.data.unitId);
+    }
+
+    match /troubleshooting_updates/{updateId} {
+      allow read: if isActive() &&
+        (isAdmin() || sameUnit(resource.data.unitId));
+      allow create: if isActive() &&
+        sameUnit(request.resource.data.unitId) &&
+        request.resource.data.createdBy == request.auth.uid;
+      allow update: if false;
+      allow delete: if isAdmin() && sameUnit(resource.data.unitId);
+    }
+
+    match /system_settings/{settingId} {
+      allow read: if isActive() &&
+        (isAdmin() || sameUnit(resource.data.unitId));
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+
+    match /purge_run_logs/{logId} {
+      allow read: if isManager() &&
+        (isAdmin() || sameUnit(resource.data.unitId));
+      allow create: if isAdmin() &&
+        sameUnit(request.resource.data.unitId) &&
+        request.resource.data.executedBy == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

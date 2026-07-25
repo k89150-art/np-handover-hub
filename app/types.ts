@@ -14,6 +14,7 @@ export interface NewPatient {
   handover_type: "new_patient";
   handoverDate: string;
   shift: Shift;
+  unitId: string;
   unit: string;
   bedNo: string;
   patientAlias: string;
@@ -39,6 +40,8 @@ export interface NewPatient {
   reportConditions: string;
   handoverBy: string;
   acceptedBy?: string;
+  createdBy?: string;
+  updatedBy?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -56,6 +59,7 @@ export interface TroubleshootingItem {
   patientReference?: string;
   handoverDate: string;
   shift: Shift;
+  unitId: string;
   unit: string;
   bedNo: string;
   patientAlias: string;
@@ -71,6 +75,8 @@ export interface TroubleshootingItem {
   timelineUpdates: TimelineUpdate[];
   handoverBy: string;
   acceptedBy?: string;
+  createdBy?: string;
+  updatedBy?: string;
   createdAt: string;
   updatedAt: string;
 }

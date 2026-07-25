@@ -12,12 +12,12 @@ async function render() {
   );
 }
 
-test("server-renders the handover dashboard", async () => {
+test("server-renders the protected handover application shell", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /交班中樞/);
-  assert.match(html, /交班總覽/);
+  assert.match(html, /正在確認登入狀態/);
   assert.match(html, /Trouble shooting/);
   assert.doesNotMatch(html, /codex-preview/);
 });

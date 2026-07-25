@@ -1,8 +1,27 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  FormEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  collection,
+  doc,
+  onSnapshot,
+  query,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  where,
+  writeBatch,
+} from "firebase/firestore";
+import { UserProfile, useFirebaseSession } from "./FirebaseProvider";
 import { NewPatientPrintSheet } from "./NewPatientPrintSheet";
 import { TroubleshootingPrintSheet } from "./TroubleshootingPrintSheet";
+import { firestore } from "./firebase";
 import type {
   HandoverType,
   NewPatient,
@@ -22,6 +41,7 @@ type View =
 
 const TODAY = "2026-07-25";
 const UNIT = "胸腔內科病房";
+const UNIT_ID = "chest-medicine";
 
 const seedPatients: NewPatient[] = [
   {
@@ -29,6 +49,7 @@ const seedPatients: NewPatient[] = [
     handover_type: "new_patient",
     handoverDate: TODAY,
     shift: "大夜班",
+    unitId: UNIT_ID,
     unit: UNIT,
     bedNo: "1208-1",
     patientAlias: "林先生",
@@ -62,6 +83,7 @@ const seedPatients: NewPatient[] = [
     handover_type: "new_patient",
     handoverDate: TODAY,
     shift: "大夜班",
+    unitId: UNIT_ID,
     unit: UNIT,
     bedNo: "1215-2",
     patientAlias: "張女士",
@@ -99,6 +121,7 @@ const seedTroubles: TroubleshootingItem[] = [
     patientReference: "np-1",
     handoverDate: TODAY,
     shift: "大夜班",
+    unitId: UNIT_ID,
     unit: UNIT,
     bedNo: "1208-1",
     patientAlias: "林先生",
@@ -125,6 +148,7 @@ const seedTroubles: TroubleshootingItem[] = [
     handover_type: "troubleshooting",
     handoverDate: TODAY,
     shift: "大夜班",
+    unitId: UNIT_ID,
     unit: UNIT,
     bedNo: "1123-2",
     patientAlias: "陳先生",
@@ -150,6 +174,7 @@ const seedTroubles: TroubleshootingItem[] = [
     handover_type: "troubleshooting",
     handoverDate: TODAY,
     shift: "大夜班",
+    unitId: UNIT_ID,
     unit: UNIT,
     bedNo: "1106-1",
     patientAlias: "吳女士",
@@ -175,6 +200,7 @@ const emptyPatient = (): NewPatient => ({
   handover_type: "new_patient",
   handoverDate: TODAY,
   shift: "大夜班",
+  unitId: UNIT_ID,
   unit: UNIT,
   bedNo: "",
   patientAlias: "",
@@ -209,6 +235,7 @@ const emptyTrouble = (): TroubleshootingItem => ({
   handover_type: "troubleshooting",
   handoverDate: TODAY,
   shift: "大夜班",
+  unitId: UNIT_ID,
   unit: UNIT,
   bedNo: "",
   patientAlias: "",
@@ -329,9 +356,13 @@ function StatCard({
 }
 
 export default function HandoverApp() {
+  const { user, profile, logout } = useFirebaseSession();
   const [view, setView] = useState<View>("overview");
-  const [patients, setPatients] = useState<NewPatient[]>(seedPatients);
-  const [troubles, setTroubles] = useState<TroubleshootingItem[]>(seedTroubles);
+  const [patients, setPatients] = useState<NewPatient[]>([]);
+  const [troubles, setTroubles] = useState<TroubleshootingItem[]>([]);
+  const [profiles, setProfiles] = useState<UserProfile[]>([]);
+  const [dataLoading, setDataLoading] = useState(true);
+  const seedAttempted = useRef(false);
   const [modal, setModal] = useState<"type" | HandoverType | null>(null);
   const [patientForm, setPatientForm] = useState<NewPatient>(emptyPatient);
   const [troubleForm, setTroubleForm] = useState<TroubleshootingItem>(emptyTrouble);
@@ -357,6 +388,90 @@ export default function HandoverApp() {
     showMetadata: false,
     skipEmptySheets: false,
   });
+
+  useEffect(() => {
+    if (!profile || !user) return;
+
+    const patientQuery = query(
+      collection(firestore, "new_patients"),
+      where("unitId", "==", profile.unitId),
+    );
+    const troubleQuery = query(
+      collection(firestore, "troubleshooting_items"),
+      where("unitId", "==", profile.unitId),
+    );
+
+    const stopPatients = onSnapshot(
+      patientQuery,
+      (snapshot) => {
+        const nextPatients = snapshot.docs
+          .map((item) => item.data() as NewPatient)
+          .filter((item) => item.handover_type === "new_patient")
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        setPatients(nextPatients);
+        setDataLoading(false);
+
+        if (
+          snapshot.empty &&
+          profile.role === "admin" &&
+          !seedAttempted.current
+        ) {
+          seedAttempted.current = true;
+          const batch = writeBatch(firestore);
+          seedPatients.forEach((patient) => {
+            batch.set(doc(firestore, "new_patients", patient.id), {
+              ...patient,
+              unitId: profile.unitId,
+              unit: profile.unitName,
+              createdBy: user.uid,
+              updatedBy: user.uid,
+            });
+          });
+          seedTroubles.forEach((item) => {
+            batch.set(doc(firestore, "troubleshooting_items", item.id), {
+              ...item,
+              unitId: profile.unitId,
+              unit: profile.unitName,
+              createdBy: user.uid,
+              updatedBy: user.uid,
+            });
+          });
+          void batch.commit().catch(() => {
+            setToast("展示資料初始化失敗，請檢查 Firestore 權限");
+          });
+        }
+      },
+      () => {
+        setDataLoading(false);
+        setToast("無法同步新病人資料，請檢查網路或權限");
+      },
+    );
+
+    const stopTroubles = onSnapshot(
+      troubleQuery,
+      (snapshot) => {
+        setTroubles(
+          snapshot.docs
+            .map((item) => item.data() as TroubleshootingItem)
+            .filter((item) => item.handover_type === "troubleshooting")
+            .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+        );
+      },
+      () => setToast("無法同步 Trouble shooting 資料"),
+    );
+
+    return () => {
+      stopPatients();
+      stopTroubles();
+    };
+  }, [profile, user]);
+
+  useEffect(() => {
+    if (profile?.role !== "admin") return;
+    return onSnapshot(collection(firestore, "profiles"), (snapshot) => {
+      setProfiles(snapshot.docs.map((item) => item.data() as UserProfile));
+    });
+  }, [profile?.role]);
 
   useEffect(() => {
     if (!toast) return;
@@ -401,14 +516,20 @@ export default function HandoverApp() {
   function chooseType(type: HandoverType) {
     setFormError("");
     if (type === "new_patient") {
-      setPatientForm(emptyPatient());
+      setPatientForm({
+        ...emptyPatient(),
+        handoverBy: profile?.displayName ?? "目前使用者",
+      });
     } else {
-      setTroubleForm(emptyTrouble());
+      setTroubleForm({
+        ...emptyTrouble(),
+        handoverBy: profile?.displayName ?? "目前使用者",
+      });
     }
     setModal(type);
   }
 
-  function savePatient(event: FormEvent) {
+  async function savePatient(event: FormEvent) {
     event.preventDefault();
     if (patientForm.handover_type !== "new_patient") {
       setFormError("資料類型驗證失敗，無法儲存。");
@@ -423,17 +544,29 @@ export default function HandoverApp() {
       setFormError("請完成日期、班別、床號，以及主要診斷或入院原因。");
       return;
     }
+    if (!user || !profile) return;
     const now = new Date().toISOString().slice(0, 19);
-    setPatients((items) => [
-      { ...patientForm, id: `np-${Date.now()}`, createdAt: now, updatedAt: now },
-      ...items,
-    ]);
-    setModal(null);
-    setView("new_patients");
-    setToast("新病人交班已建立，資料已歸入新病人清單");
+    const id = `np-${Date.now()}`;
+    try {
+      await setDoc(doc(firestore, "new_patients", id), {
+        ...patientForm,
+        id,
+        unitId: profile.unitId,
+        unit: profile.unitName,
+        createdBy: user.uid,
+        updatedBy: user.uid,
+        createdAt: now,
+        updatedAt: now,
+      });
+      setModal(null);
+      setView("new_patients");
+      setToast("新病人交班已建立，所有已登入使用者將即時同步");
+    } catch {
+      setFormError("儲存失敗，請檢查網路連線或帳號權限。");
+    }
   }
 
-  function saveTrouble(event: FormEvent) {
+  async function saveTrouble(event: FormEvent) {
     event.preventDefault();
     if (troubleForm.handover_type !== "troubleshooting") {
       setFormError("資料類型驗證失敗，無法儲存。");
@@ -448,14 +581,26 @@ export default function HandoverApp() {
       setFormError("請完成日期、班別、床號與特殊情況。");
       return;
     }
+    if (!user || !profile) return;
     const now = new Date().toISOString().slice(0, 19);
-    setTroubles((items) => [
-      { ...troubleForm, id: `ts-${Date.now()}`, createdAt: now, updatedAt: now },
-      ...items,
-    ]);
-    setModal(null);
-    setView("troubleshooting");
-    setToast("Trouble shooting 已建立，資料已歸入問題清單");
+    const id = `ts-${Date.now()}`;
+    try {
+      await setDoc(doc(firestore, "troubleshooting_items", id), {
+        ...troubleForm,
+        id,
+        unitId: profile.unitId,
+        unit: profile.unitName,
+        createdBy: user.uid,
+        updatedBy: user.uid,
+        createdAt: now,
+        updatedAt: now,
+      });
+      setModal(null);
+      setView("troubleshooting");
+      setToast("Trouble shooting 已建立，所有已登入使用者將即時同步");
+    } catch {
+      setFormError("儲存失敗，請檢查網路連線或帳號權限。");
+    }
   }
 
   function openPrint(type: PrintSettings["type"], shouldPrint = false) {
@@ -466,7 +611,7 @@ export default function HandoverApp() {
     }
   }
 
-  function runPurge() {
+  async function runPurge() {
     const cutoff = new Date(`${TODAY}T00:00:00`);
     cutoff.setDate(cutoff.getDate() - retentionDays);
     const oldPatients = patients.filter(
@@ -481,15 +626,59 @@ export default function HandoverApp() {
       updates: oldTroubles.reduce((sum, item) => sum + item.timelineUpdates.length, 0),
       sessions: oldPatients.length || oldTroubles.length ? 1 : 0,
     };
-    setPatients((items) => items.filter((item) => new Date(item.handoverDate) >= cutoff));
-    setTroubles((items) => items.filter((item) => new Date(item.handoverDate) >= cutoff));
-    setPurgeStats(stats);
-    setLastPurge("剛剛");
-    setToast(
-      stats.newPatients + stats.troubleshooting > 0
-        ? "已永久清除超過保存期限的交班資料"
-        : "清理完成，目前沒有超過保存期限的資料",
-    );
+    if (!user || profile?.role !== "admin") return;
+    try {
+      const batch = writeBatch(firestore);
+      oldPatients.forEach((item) =>
+        batch.delete(doc(firestore, "new_patients", item.id)),
+      );
+      oldTroubles.forEach((item) =>
+        batch.delete(doc(firestore, "troubleshooting_items", item.id)),
+      );
+      const logId = `purge-${Date.now()}`;
+      batch.set(doc(firestore, "purge_run_logs", logId), {
+        id: logId,
+        unitId: profile.unitId,
+        executedAt: serverTimestamp(),
+        cutoffDate: cutoff.toISOString().slice(0, 10),
+        deletedNewPatientCount: stats.newPatients,
+        deletedTroubleshootingCount: stats.troubleshooting,
+        deletedUpdateCount: stats.updates,
+        deletedSessionCount: stats.sessions,
+        executedBy: user.uid,
+        result: "success",
+      });
+      await batch.commit();
+      setPurgeStats(stats);
+      setLastPurge("剛剛");
+      setToast(
+        stats.newPatients + stats.troubleshooting > 0
+          ? "已永久清除超過保存期限的交班資料"
+          : "清理完成，目前沒有超過保存期限的資料",
+      );
+    } catch {
+      setToast("清理失敗，未刪除任何資料");
+    }
+  }
+
+  async function updateProfileAccess(
+    target: UserProfile,
+    status: UserProfile["status"],
+    role: UserProfile["role"] = target.role,
+  ) {
+    try {
+      await updateDoc(doc(firestore, "profiles", target.uid), {
+        status,
+        role,
+        unitId: profile?.unitId ?? UNIT_ID,
+        unitName: profile?.unitName ?? UNIT,
+        updatedAt: serverTimestamp(),
+        approvedBy: user?.uid ?? "",
+      });
+      setToast(status === "active" ? "帳號已核准" : "帳號狀態已更新");
+    } catch {
+      setToast("帳號權限更新失敗");
+    }
   }
 
   return (
@@ -508,7 +697,9 @@ export default function HandoverApp() {
             ["new_patients", "patient", "新病人"],
             ["troubleshooting", "trouble", "Trouble shooting"],
             ["print", "print", "列印"],
-            ["admin", "admin", "管理"],
+            ...(profile?.role === "admin"
+              ? ([["admin", "admin", "管理"]] as Array<[View, string, string]>)
+              : []),
           ] as Array<[View, string, string]>).map(([key, icon, label]) => (
             <button
               className={view === key ? "active" : ""}
@@ -556,12 +747,21 @@ export default function HandoverApp() {
               <span />
             </button>
             <div className="profile">
-              <div className="avatar">王</div>
+              <div className="avatar">{profile?.displayName.slice(0, 1) || "U"}</div>
               <div>
-                <strong>王怡婷</strong>
-                <small>專科護理師</small>
+                <strong>{profile?.displayName}</strong>
+                <small>
+                  {profile?.role === "admin"
+                    ? "系統管理員"
+                    : profile?.role === "manager"
+                      ? "護理主管"
+                      : "專科護理師"}
+                </small>
               </div>
             </div>
+            <button className="logout-button" onClick={() => void logout()}>
+              登出
+            </button>
           </div>
         </header>
 
@@ -574,6 +774,9 @@ export default function HandoverApp() {
           <div className="context-info">
             <span><Icon name="clock" /> 本班 00:00—08:00</span>
             <span><Icon name="shield" /> 資料保存 {retentionDays} 天</span>
+            <span className={dataLoading ? "syncing" : "synced"}>
+              <i /> {dataLoading ? "同步資料中" : "Firebase 已同步"}
+            </span>
           </div>
           <button className="primary-button" onClick={() => setModal("type")}>
             <Icon name="patient" /> 新增交班資料
@@ -585,7 +788,7 @@ export default function HandoverApp() {
             <section className="welcome-strip">
               <div>
                 <span className="live-pill"><i /> 大夜班進行中</span>
-                <h2>早安，王怡婷</h2>
+                <h2>早安，{profile?.displayName}</h2>
                 <p>本班有 {pendingCount} 項待處理問題，其中 {highCount} 項需要優先關注。</p>
               </div>
               <div className="handover-progress">
@@ -858,6 +1061,92 @@ export default function HandoverApp() {
                   <span>troubleshooting_updates</span>
                   <span>handover_sessions</span>
                   <span>相關 audit_logs</span>
+                </div>
+              </article>
+
+              <article className="admin-panel account-admin">
+                <div className="panel-title-row">
+                  <div>
+                    <span className="section-kicker purple">ACCESS CONTROL</span>
+                    <h2>使用者與權限</h2>
+                    <p>新申請帳號必須由管理員核准後才能讀取交班資料。</p>
+                  </div>
+                  <span className="account-count">
+                    {profiles.filter((item) => item.status === "pending").length} 待核准
+                  </span>
+                </div>
+                <div className="account-table-wrap">
+                  <table className="account-table">
+                    <thead>
+                      <tr>
+                        <th>使用者</th>
+                        <th>角色</th>
+                        <th>單位</th>
+                        <th>狀態</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {profiles.map((item) => (
+                        <tr key={item.uid}>
+                          <td>
+                            <strong>{item.displayName}</strong>
+                            <small>{item.email}</small>
+                          </td>
+                          <td>
+                            <select
+                              value={item.role}
+                              disabled={item.uid === user?.uid}
+                              onChange={(event) =>
+                                void updateProfileAccess(
+                                  item,
+                                  item.status,
+                                  event.target.value as UserProfile["role"],
+                                )
+                              }
+                            >
+                              <option value="member">member</option>
+                              <option value="manager">manager</option>
+                              <option value="admin">admin</option>
+                            </select>
+                          </td>
+                          <td>{item.unitName}</td>
+                          <td>
+                            <span className={`account-status ${item.status}`}>
+                              {item.status === "active"
+                                ? "已啟用"
+                                : item.status === "pending"
+                                  ? "待核准"
+                                  : "已停用"}
+                            </span>
+                          </td>
+                          <td>
+                            {item.uid === user?.uid ? (
+                              <span className="self-label">目前帳號</span>
+                            ) : item.status === "active" ? (
+                              <button
+                                className="disable-account"
+                                onClick={() =>
+                                  void updateProfileAccess(item, "disabled")
+                                }
+                              >
+                                停用
+                              </button>
+                            ) : (
+                              <button
+                                className="approve-account"
+                                onClick={() =>
+                                  void updateProfileAccess(item, "active")
+                                }
+                              >
+                                核准
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </article>
             </section>
