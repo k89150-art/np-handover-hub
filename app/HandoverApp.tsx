@@ -573,7 +573,8 @@ export default function HandoverApp() {
     () =>
       troubles.filter(
         (item) =>
-          activeHandoverDates.includes(item.handoverDate) &&
+          (activeHandoverDates.includes(item.handoverDate) ||
+            !["completed", "cancelled"].includes(item.status)) &&
           (activeShift === "全天" || item.shift === activeShift),
       ),
     [activeHandoverDates, activeShift, troubles],
