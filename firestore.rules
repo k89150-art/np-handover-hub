@@ -49,9 +49,20 @@ service cloud.firestore {
           )
         );
 
-      allow update: if isAdmin() &&
-        request.resource.data.uid == resource.data.uid &&
-        request.resource.data.email == resource.data.email;
+      allow update: if (
+          isAdmin() &&
+          request.resource.data.uid == resource.data.uid &&
+          request.resource.data.email == resource.data.email
+        ) || (
+          isActive() &&
+          request.auth.uid == uid &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["displayName", "fontScale", "updatedAt"]) &&
+          request.resource.data.displayName is string &&
+          request.resource.data.displayName.size() > 0 &&
+          request.resource.data.displayName.size() <= 40 &&
+          request.resource.data.fontScale in ["standard", "large", "xlarge"]
+        );
       allow delete: if false;
     }
 

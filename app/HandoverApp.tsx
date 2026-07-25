@@ -20,7 +20,11 @@ import {
   where,
   writeBatch,
 } from "firebase/firestore";
-import { UserProfile, useFirebaseSession } from "./FirebaseProvider";
+import {
+  FontScale,
+  UserProfile,
+  useFirebaseSession,
+} from "./FirebaseProvider";
 import { NewPatientPrintSheet } from "./NewPatientPrintSheet";
 import { TroubleshootingPrintSheet } from "./TroubleshootingPrintSheet";
 import { firestore } from "./firebase";
@@ -39,6 +43,7 @@ type View =
   | "new_patients"
   | "troubleshooting"
   | "print"
+  | "settings"
   | "admin";
 type TroubleFilter = "all" | "pending" | "high" | "completed";
 type ShiftFilter = Shift | "全天";
@@ -294,6 +299,7 @@ function Icon({ name }: { name: string }) {
     patient: "＋",
     trouble: "!",
     print: "▤",
+    settings: "Aa",
     admin: "⚙",
     bell: "●",
     search: "⌕",
@@ -396,6 +402,9 @@ export default function HandoverApp() {
   const [conditionTarget, setConditionTarget] =
     useState<TroubleshootingItem | null>(null);
   const [conditionText, setConditionText] = useState("");
+  const [fontScale, setFontScale] = useState<FontScale>(
+    () => profile?.fontScale ?? "standard",
+  );
   const [patientForm, setPatientForm] = useState<NewPatient>(emptyPatient);
   const [troubleForm, setTroubleForm] = useState<TroubleshootingItem>(emptyTrouble);
   const [formError, setFormError] = useState("");
@@ -950,8 +959,29 @@ export default function HandoverApp() {
     }
   }
 
+  async function savePersonalSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!user || !profile) return;
+    const formData = new FormData(event.currentTarget);
+    const displayName = String(formData.get("displayName") ?? "").trim();
+    if (!displayName) {
+      setToast("顯示姓名不可空白");
+      return;
+    }
+    try {
+      await updateDoc(doc(firestore, "profiles", user.uid), {
+        displayName,
+        fontScale,
+        updatedAt: serverTimestamp(),
+      });
+      setToast("個人設定已儲存");
+    } catch {
+      setToast("個人設定儲存失敗，請檢查網路或帳號權限");
+    }
+  }
+
   return (
-    <div className="app-shell">
+    <div className={`app-shell font-scale-${fontScale}`}>
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">NP</div>
@@ -966,6 +996,7 @@ export default function HandoverApp() {
             ["new_patients", "patient", "新病人"],
             ["troubleshooting", "trouble", "Trouble shooting"],
             ["print", "print", "列印"],
+            ["settings", "settings", "設定"],
             ...(profile?.role === "admin"
               ? ([["admin", "admin", "管理"]] as Array<[View, string, string]>)
               : []),
@@ -1007,6 +1038,7 @@ export default function HandoverApp() {
               {view === "new_patients" && "新病人"}
               {view === "troubleshooting" && "Trouble shooting"}
               {view === "print" && "列印與預覽"}
+              {view === "settings" && "個人設定"}
               {view === "admin" && "系統管理"}
             </h1>
           </div>
@@ -1389,6 +1421,95 @@ export default function HandoverApp() {
                   )}
               </div>
             </section>
+          </div>
+        )}
+
+        {view === "settings" && (
+          <div className="page-content">
+            <form className="personal-settings" onSubmit={savePersonalSettings}>
+              <section className="settings-card">
+                <span className="section-kicker blue">PERSONAL PROFILE</span>
+                <h2>基本資料</h2>
+                <p>顯示姓名會用於交班者、病況更新與操作紀錄。</p>
+                <div className="profile-settings-grid">
+                  <label>
+                    <span>顯示姓名</span>
+                    <input
+                      defaultValue={profile?.displayName}
+                      key={profile?.displayName}
+                      maxLength={40}
+                      name="displayName"
+                      placeholder="例：王小明 NP"
+                      required
+                    />
+                  </label>
+                  <label>
+                    <span>電子郵件</span>
+                    <input readOnly value={profile?.email ?? ""} />
+                  </label>
+                  <label>
+                    <span>所屬單位</span>
+                    <input readOnly value={profile?.unitName ?? ""} />
+                  </label>
+                  <label>
+                    <span>系統角色</span>
+                    <input
+                      readOnly
+                      value={
+                        profile?.role === "admin"
+                          ? "系統管理員"
+                          : profile?.role === "manager"
+                            ? "護理主管"
+                            : "專科護理師"
+                      }
+                    />
+                  </label>
+                </div>
+                <div className="settings-security-note">
+                  <Icon name="shield" />
+                  電子郵件、單位與角色只能由系統管理員調整。
+                </div>
+              </section>
+
+              <section className="settings-card">
+                <span className="section-kicker purple">DISPLAY</span>
+                <h2>顯示字級</h2>
+                <p>選擇後會立即預覽，儲存後套用至您所有登入裝置。</p>
+                <div className="font-scale-options">
+                  {(
+                    [
+                      ["standard", "標準", "100%", "適合一般桌面畫面"],
+                      ["large", "大字", "115%", "提升文字與按鈕辨識度"],
+                      ["xlarge", "特大", "130%", "適合需要更大顯示的使用者"],
+                    ] as Array<[FontScale, string, string, string]>
+                  ).map(([scale, label, size, note]) => (
+                    <button
+                      aria-pressed={fontScale === scale}
+                      className={fontScale === scale ? "selected" : ""}
+                      key={scale}
+                      onClick={() => setFontScale(scale)}
+                      type="button"
+                    >
+                      <span style={{ fontSize: size }}>{label}</span>
+                      <strong>{size}</strong>
+                      <small>{note}</small>
+                    </button>
+                  ))}
+                </div>
+                <div className="font-preview">
+                  <span>字級預覽</span>
+                  <strong>1208-1　林先生　目前生命徵象穩定</strong>
+                  <p>請持續追蹤檢驗結果與夜間病況變化。</p>
+                </div>
+              </section>
+
+              <footer className="settings-save-bar">
+                <span>設定僅套用於目前登入帳號</span>
+                <button className="primary-button" type="submit">
+                  <Icon name="check" /> 儲存個人設定
+                </button>
+              </footer>
+            </form>
           </div>
         )}
 

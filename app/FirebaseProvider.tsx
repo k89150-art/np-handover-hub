@@ -28,6 +28,7 @@ import { firebaseAuth, firestore, initialAdminEmail } from "./firebase";
 
 export type UserRole = "admin" | "manager" | "member";
 export type ProfileStatus = "active" | "pending" | "disabled";
+export type FontScale = "standard" | "large" | "xlarge";
 
 export interface UserProfile {
   uid: string;
@@ -37,6 +38,7 @@ export interface UserProfile {
   status: ProfileStatus;
   unitId: string;
   unitName: string;
+  fontScale?: FontScale;
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -113,6 +115,7 @@ export function FirebaseProvider({ children }: { children: ReactNode }) {
               status: isInitialAdmin ? "active" : "pending",
               unitId: "chest-medicine",
               unitName: "胸腔內科病房",
+              fontScale: "standard",
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
             });
@@ -175,6 +178,7 @@ export function FirebaseProvider({ children }: { children: ReactNode }) {
               status: "pending",
               unitId: "chest-medicine",
               unitName: "胸腔內科病房",
+              fontScale: "standard",
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
             },
