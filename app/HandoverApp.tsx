@@ -41,8 +41,29 @@ type View =
   | "print"
   | "admin";
 type TroubleFilter = "all" | "pending" | "high" | "completed";
+type ShiftFilter = Shift | "全天";
 
-const TODAY = "2026-07-25";
+function localDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function previousDateKey(date: Date) {
+  const previous = new Date(date);
+  previous.setDate(previous.getDate() - 1);
+  return localDateKey(previous);
+}
+
+function shiftForTime(date: Date): Shift {
+  const hour = date.getHours();
+  if (hour >= 8 && hour < 16) return "白班";
+  if (hour >= 16) return "小夜班";
+  return "大夜班";
+}
+
+const TODAY = localDateKey(new Date());
 const UNIT = "胸腔內科病房";
 const UNIT_ID = "chest-medicine";
 const ENABLE_DEMO_SEED = false;
@@ -367,7 +388,7 @@ export default function HandoverApp() {
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
   const [notificationNow, setNotificationNow] = useState(() => Date.now());
-  const [activeShift, setActiveShift] = useState<Shift>("大夜班");
+  const [activeShift, setActiveShift] = useState<ShiftFilter>("全天");
   const [troubleFilter, setTroubleFilter] = useState<TroubleFilter>("all");
   const seedAttempted = useRef(false);
   const [modal, setModal] = useState<"type" | HandoverType | null>(null);
@@ -529,19 +550,33 @@ export default function HandoverApp() {
     };
   }, []);
 
+  const calendarToday = useMemo(
+    () => localDateKey(new Date(notificationNow)),
+    [notificationNow],
+  );
+  const activeHandoverDates = useMemo(() => {
+    const current = new Date(notificationNow);
+    return current.getHours() < 10
+      ? [calendarToday, previousDateKey(current)]
+      : [calendarToday];
+  }, [calendarToday, notificationNow]);
   const visiblePatients = useMemo(
     () =>
       patients.filter(
-        (item) => item.handoverDate === TODAY && item.shift === activeShift,
+        (item) =>
+          activeHandoverDates.includes(item.handoverDate) &&
+          (activeShift === "全天" || item.shift === activeShift),
       ),
-    [activeShift, patients],
+    [activeHandoverDates, activeShift, patients],
   );
   const visibleTroubles = useMemo(
     () =>
       troubles.filter(
-        (item) => item.handoverDate === TODAY && item.shift === activeShift,
+        (item) =>
+          activeHandoverDates.includes(item.handoverDate) &&
+          (activeShift === "全天" || item.shift === activeShift),
       ),
-    [activeShift, troubles],
+    [activeHandoverDates, activeShift, troubles],
   );
 
   const notificationTroubles = useMemo(
@@ -627,13 +662,22 @@ export default function HandoverApp() {
     if (type === "new_patient") {
       setPatientForm({
         ...emptyPatient(),
-        shift: activeShift,
+        handoverDate: calendarToday,
+        admissionDate: calendarToday,
+        shift:
+          activeShift === "全天"
+            ? shiftForTime(new Date(notificationNow))
+            : activeShift,
         handoverBy: profile?.displayName ?? "目前使用者",
       });
     } else {
       setTroubleForm({
         ...emptyTrouble(),
-        shift: activeShift,
+        handoverDate: calendarToday,
+        shift:
+          activeShift === "全天"
+            ? shiftForTime(new Date(notificationNow))
+            : activeShift,
         handoverBy: profile?.displayName ?? "目前使用者",
       });
     }
@@ -836,7 +880,7 @@ export default function HandoverApp() {
   }
 
   async function runPurge() {
-    const cutoff = new Date(`${TODAY}T00:00:00`);
+    const cutoff = new Date(`${calendarToday}T00:00:00`);
     cutoff.setDate(cutoff.getDate() - retentionDays);
     const oldPatients = patients.filter(
       (item) => new Date(item.handoverDate) < cutoff,
@@ -951,7 +995,11 @@ export default function HandoverApp() {
         <header className="topbar">
           <div>
             <div className="eyebrow">
-              {UNIT} <Icon name="chevron" /> 2026 年 7 月 25 日
+              {UNIT} <Icon name="chevron" />{" "}
+              {calendarToday.replace(
+                /^(\d{4})-(\d{2})-(\d{2})$/,
+                "$1 年 $2 月 $3 日",
+              )}
             </div>
             <h1>
               {view === "overview" && "交班總覽"}
@@ -1041,7 +1089,7 @@ export default function HandoverApp() {
 
         <div className="context-bar">
           <div className="shift-switch">
-            {(["白班", "小夜班", "大夜班"] as Shift[]).map((shift) => (
+            {(["全天", "白班", "小夜班", "大夜班"] as ShiftFilter[]).map((shift) => (
               <button
                 aria-pressed={activeShift === shift}
                 className={activeShift === shift ? "selected" : ""}
@@ -1055,7 +1103,9 @@ export default function HandoverApp() {
           <div className="context-info">
             <span>
               <Icon name="clock" /> 本班{" "}
-              {activeShift === "白班"
+              {activeShift === "全天"
+                ? "全天交班（10:00 更新）"
+                : activeShift === "白班"
                 ? "08:00—16:00"
                 : activeShift === "小夜班"
                   ? "16:00—00:00"
