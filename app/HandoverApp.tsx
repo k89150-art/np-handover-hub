@@ -497,6 +497,36 @@ export default function HandoverApp() {
     return () => window.clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    function closeOpenMenus(event: PointerEvent) {
+      document
+        .querySelectorAll<HTMLDetailsElement>(
+          "details.row-action-menu[open], details.notification-menu[open]",
+        )
+        .forEach((menu) => {
+          if (event.target instanceof Node && !menu.contains(event.target)) {
+            menu.removeAttribute("open");
+          }
+        });
+    }
+
+    function closeMenusWithEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      document
+        .querySelectorAll<HTMLDetailsElement>(
+          "details.row-action-menu[open], details.notification-menu[open]",
+        )
+        .forEach((menu) => menu.removeAttribute("open"));
+    }
+
+    document.addEventListener("pointerdown", closeOpenMenus);
+    document.addEventListener("keydown", closeMenusWithEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOpenMenus);
+      document.removeEventListener("keydown", closeMenusWithEscape);
+    };
+  }, []);
+
   const visiblePatients = useMemo(
     () =>
       patients.filter(
@@ -1599,7 +1629,14 @@ function PatientActionMenu({
       <summary className="row-action" title="更多操作" aria-label="更多操作">
         ···
       </summary>
-      <div className="action-popover">
+      <div
+        className="action-popover"
+        onClick={(event) => {
+          if (event.target instanceof Element && event.target.closest("button")) {
+            event.currentTarget.closest("details")?.removeAttribute("open");
+          }
+        }}
+      >
         <button type="button" onClick={onEdit}>編輯資料</button>
         {canDelete ? (
           <button type="button" className="danger-action" onClick={onDelete}>
@@ -1633,7 +1670,14 @@ function TroubleActionMenu({
       <summary className="row-action" title="更多操作" aria-label="更多操作">
         ···
       </summary>
-      <div className="action-popover trouble-actions">
+      <div
+        className="action-popover trouble-actions"
+        onClick={(event) => {
+          if (event.target instanceof Element && event.target.closest("button")) {
+            event.currentTarget.closest("details")?.removeAttribute("open");
+          }
+        }}
+      >
         <span className="action-title">變更狀態</span>
         <div className="status-actions">
           {(
