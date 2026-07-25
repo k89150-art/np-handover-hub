@@ -40,6 +40,7 @@ type View =
   | "troubleshooting"
   | "print"
   | "admin";
+type TroubleFilter = "all" | "pending" | "high" | "completed";
 
 const TODAY = "2026-07-25";
 const UNIT = "胸腔內科病房";
@@ -366,6 +367,7 @@ export default function HandoverApp() {
   const [dataLoading, setDataLoading] = useState(true);
   const [notificationNow, setNotificationNow] = useState(() => Date.now());
   const [activeShift, setActiveShift] = useState<Shift>("大夜班");
+  const [troubleFilter, setTroubleFilter] = useState<TroubleFilter>("all");
   const seedAttempted = useRef(false);
   const [modal, setModal] = useState<"type" | HandoverType | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -542,6 +544,24 @@ export default function HandoverApp() {
   const completedCount = visibleTroubles.filter(
     (item) => item.status === "completed",
   ).length;
+  const filteredVisibleTroubles = useMemo(() => {
+    if (troubleFilter === "pending") {
+      return visibleTroubles.filter(
+        (item) => !["completed", "cancelled"].includes(item.status),
+      );
+    }
+    if (troubleFilter === "high") {
+      return visibleTroubles.filter(
+        (item) =>
+          item.priority === "high" &&
+          !["completed", "cancelled"].includes(item.status),
+      );
+    }
+    if (troubleFilter === "completed") {
+      return visibleTroubles.filter((item) => item.status === "completed");
+    }
+    return visibleTroubles;
+  }, [troubleFilter, visibleTroubles]);
 
   const printPatients = useMemo(
     () =>
@@ -1153,13 +1173,26 @@ export default function HandoverApp() {
               </button>
             </section>
             <div className="filter-row">
-              <button className="filter-active">全部 {visibleTroubles.length}</button>
-              <button>待處理 {pendingCount}</button>
-              <button>高優先 {highCount}</button>
-              <button>已完成 {completedCount}</button>
+              {(
+                [
+                  ["all", "全部", visibleTroubles.length],
+                  ["pending", "待處理", pendingCount],
+                  ["high", "高優先", highCount],
+                  ["completed", "已完成", completedCount],
+                ] as Array<[TroubleFilter, string, number]>
+              ).map(([filter, label, count]) => (
+                <button
+                  aria-pressed={troubleFilter === filter}
+                  className={troubleFilter === filter ? "filter-active" : ""}
+                  key={filter}
+                  onClick={() => setTroubleFilter(filter)}
+                >
+                  {label} {count}
+                </button>
+              ))}
             </div>
             <TroubleTable
-              rows={visibleTroubles}
+              rows={filteredVisibleTroubles}
               detailed
               canDelete={(item) => canDelete(item.createdBy)}
               onConditionUpdate={openConditionUpdate}
@@ -1671,6 +1704,13 @@ function TroubleTable({
           </tr>
         </thead>
         <tbody>
+          {rows.length === 0 && (
+            <tr>
+              <td className="table-empty" colSpan={detailed ? 7 : 6}>
+                目前篩選條件沒有 Trouble shooting 資料
+              </td>
+            </tr>
+          )}
           {rows.map((item) => (
             <tr key={item.id}>
               <td><span className={`priority-dot ${item.priority}`} /><span className={`priority-text ${item.priority}`}>{item.priority === "high" ? "高" : item.priority === "medium" ? "中" : "低"}</span></td>
