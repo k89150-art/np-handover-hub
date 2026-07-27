@@ -64,14 +64,6 @@ export function TroubleshootingPrintSheet({
                 <b>{row.bedNo}</b>
                 <br />
                 {text(row.patientAlias)}
-                <br />
-                <span className={`print-priority priority-${row.priority}`}>
-                  {row.priority === "high"
-                    ? "高優先"
-                    : row.priority === "medium"
-                      ? "中優先"
-                      : "低優先"}
-                </span>
               </td>
               <td>
                 {text(row.diagnosis)}

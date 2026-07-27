@@ -420,7 +420,7 @@ export default function HandoverApp() {
   const [settings, setSettings] = useState<PrintSettings>({
     type: "all",
     date: TODAY,
-    shift: "大夜班",
+    shift: "全部班別",
     unit: UNIT,
     includeCompleted: false,
     includeCancelled: false,
