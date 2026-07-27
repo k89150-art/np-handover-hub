@@ -431,6 +431,16 @@ export default function HandoverApp() {
   });
 
   useEffect(() => {
+    if (view === "print") {
+      setSettings((current) =>
+        current.shift === "全部班別"
+          ? current
+          : { ...current, shift: "全部班別" },
+      );
+    }
+  }, [view]);
+
+  useEffect(() => {
     if (!profile || !user) return;
 
     const patientQuery = query(
@@ -1373,7 +1383,7 @@ export default function HandoverApp() {
 
               <div className="settings-grid">
                 <Field label="日期" type="date" value={settings.date} onChange={(date) => setSettings((current) => ({ ...current, date }))} />
-                <Field label="班別" value={settings.shift} options={["大夜班", "小夜班", "白班", "全部班別"]} onChange={(shift) => setSettings((current) => ({ ...current, shift: shift as PrintSettings["shift"] }))} />
+                <Field label="班別" value={settings.shift} options={["全部班別", "白班", "小夜班", "大夜班"]} onChange={(shift) => setSettings((current) => ({ ...current, shift: shift as PrintSettings["shift"] }))} />
                 <Field label="單位" value={settings.unit} options={[UNIT, "ICU", "一般內科病房"]} onChange={(unit) => setSettings((current) => ({ ...current, unit }))} />
               </div>
 
